@@ -1,0 +1,34 @@
+__pycache__/
+*.py[cod]
+*$py.class
+# Ignore Python cache files
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+CLCL/sign_features
+I3D_feature_extractor/chpt
+CLCL/new_experiment
+I3D_feature_extractor/checkpoint
+
+*.swp
+*.pyc
+__pycache__/**
+out/
+core*
+*.ipynb
+# *.sh
+*.bin
+wandb
+backup
+*.pth
+#*.txt
+out/
+log/
+*.json
+*.xlsx
+*.mp4
+tools/*.jpg
+tools/*.mp4
+wandb/

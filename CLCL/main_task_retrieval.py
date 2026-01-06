@@ -15,11 +15,19 @@ from modules.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 from modules.modeling import CLIP4Clip
 from modules.optimization import BertAdam
 
+import wandb
 from util import parallel_apply, get_logger
 from dataloaders.data_dataloaders import DATALOADER_DICT
 global logger
 
 torch.distributed.init_process_group(backend="nccl")
+
+WANDB_CONFIG = {
+            "WANDB_API_KEY": "1af8cc2a4ed95f2ba66c31d193caf3dd61c3a41f", 
+            "WANDB_IGNORE_GLOBS": "*.patch",
+            "WANDB_DISABLE_CODE": "true",
+            "TOKENIZERS_PARALLELISM": "false",
+        }
 
 def get_args(description='CLCL on Retrieval Task'):
     parser = argparse.ArgumentParser(description=description)
@@ -32,8 +40,8 @@ def get_args(description='CLCL on Retrieval Task'):
 
     ##########  DA  ##########
     parser.add_argument('--combine_type', type=str, default='sum', help='feature combine type')
-    parser.add_argument('--features_path', type=str, default='sign_feature/h2s_domain_agnostic', help='feature path')
-    parser.add_argument('--features_path_retrain', type=str, default='sign_feature/h2s_domain_aware', help='feature path')
+    parser.add_argument('--features_path', type=str, default='sign_features/h2s_domain_agnostic', help='feature path')
+    parser.add_argument('--features_path_retrain', type=str, default='sign_features/h2s_domain_aware', help='feature path')
     parser.add_argument('--alpha', type=float, default=0.8, help='feature combine weight')
     ##########  DA  ##########
 
@@ -63,7 +71,7 @@ def get_args(description='CLCL on Retrieval Task'):
     ##########  Learning paras  ##########
     parser.add_argument('--lr', type=float, default=0.00001, help='initial learning rate')
     parser.add_argument('--epochs', type=int, default=200, help='upper epoch limit')
-    parser.add_argument('--batch_size', type=int, default=512, help='batch size')
+    parser.add_argument('--batch_size', type=int, default=128, help='batch size')
     parser.add_argument('--batch_size_val', type=int, default=256, help='batch size eval')
     parser.add_argument("--init_model", default=None, type=str, required=False, help="Initial model.")
     parser.add_argument("--resume_model", default=None, type=str, required=False, help="Resume train model.")
@@ -78,7 +86,7 @@ def get_args(description='CLCL on Retrieval Task'):
 
 
 
-    parser.add_argument('--data_path', type=str, default='data_h2', help='data pickle file path')
+    parser.add_argument('--data_path', type=str, default='data_h2_new_new', help='data pickle file path')
     parser.add_argument('--cross_att_layers', type=int, default=1, help='feature path')
     parser.add_argument('--num_thread_reader', type=int, default=8, help='')
     parser.add_argument('--lr_decay', type=float, default=0.001, help='Learning rate exp epoch decay')
@@ -112,7 +120,7 @@ def get_args(description='CLCL on Retrieval Task'):
                         help="Whether to use 16-bit (mixed) precision (through NVIDIA apex) instead of 32-bit")
     parser.add_argument('--fp16_opt_level', type=str, default='O1',
                         help="For fp16: Apex AMP optimization level selected in ['O0', 'O1', 'O2', and 'O3']."
-                             "See details at https://nvidia.github.io/apex/amp.html")
+                            "See details at https://nvidia.github.io/apex/amp.html")
 
     parser.add_argument("--task_type", default="retrieval", type=str, help="Point the task `retrieval` to finetune.")
     parser.add_argument("--datatype", default="h2s", type=str, help="Point the dataset to finetune.")
@@ -159,6 +167,31 @@ def get_args(description='CLCL on Retrieval Task'):
 
     return args
 
+def setupWandB(wandb_config, storage=None):
+    os.environ.update(wandb_config)
+    if storage is not None:
+        os.environ['WANDB_CACHE_DIR'] = storage+'/wandb/cache'
+        os.environ['WANDB_CONFIG_DIR'] = storage+'/wandb/config'
+
+def setup_logging(args, config, wandb_config, current_time=None, mode="pre"):
+    """
+    Sets up the logging directory based on the provided arguments.
+    Creates the directory if it does not exist.
+    """
+    if current_time is None:
+        current_time = datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    save_dir=f'{args.output_dir}/log_{current_time}'
+    setupWandB(wandb_config, storage=save_dir)
+    wandb.login()
+    wandb.init(
+    project=f"local-fine-{config['logging']['project_name']}",
+    config=vars(args),
+    reinit=True  # ensures new run instead of reusing Lightning's run
+    )
+    
+    return wandb
+
+
 def set_seed_logger(args):
     global logger
     # predefining random initial seeds
@@ -171,7 +204,7 @@ def set_seed_logger(args):
     torch.backends.cudnn.benchmark = False
     torch.backends.cudnn.deterministic = True
 
-    if args.distributed==True:
+    if args.distributed:
         world_size = torch.distributed.get_world_size()
         torch.cuda.set_device(args.local_rank)
         args.world_size = world_size
@@ -183,13 +216,30 @@ def set_seed_logger(args):
         os.makedirs(args.output_dir, exist_ok=True)
 
     logger = get_logger(os.path.join(args.output_dir, "log.txt"))
+    
+    print("Initializing WandB...")
+    if os.getenv('SLURM_JOB_ID'):
+            logger_config = {
+            "logging": {
+                "project_name": f"Slurm-{args.dataset}--gating-distill",
+                "run_name": f"distill-{args.dataset}-{args.task}",
+                "save_dir": args.output_dir,
+            }}
+    else:
+        logger_config = {
+            "logging": {
+                "project_name": "CiCo-retrieval",
+                "run_name": "CiCo-test",
+                "save_dir": args.output_dir,
+            }}
+    wandb_logger = setup_logging(args, logger_config, WANDB_CONFIG, current_time=None, mode="fine")
 
     if args.local_rank == 0:
         logger.info("Effective parameters:")
         for key in sorted(args.__dict__):
             logger.info("  <<< {}: {}".format(key, args.__dict__[key]))
 
-    return args
+    return args, wandb_logger
 
 def init_device(args, local_rank):
     global logger
@@ -249,12 +299,12 @@ def prep_optimizer_freeze_clip(args, model, num_train_optimization_steps, device
 
     scheduler = None
     optimizer = BertAdam(optimizer_grouped_parameters, lr=args.lr, warmup=args.warmup_proportion,
-                         schedule='warmup_cosine', b1=0.9, b2=0.98, e=1e-6,
-                         t_total=num_train_optimization_steps, weight_decay=weight_decay,
-                         max_grad_norm=1.0)
-    if args.distributed==True:
+                        schedule='warmup_cosine', b1=0.9, b2=0.98, e=1e-6,
+                        t_total=num_train_optimization_steps, weight_decay=weight_decay,
+                        max_grad_norm=1.0)
+    if args.distributed:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
-                                                          output_device=local_rank, find_unused_parameters=True)
+                                                        output_device=local_rank, find_unused_parameters=True)
     else:
         model = torch.nn.DataParallel(model, device_ids=[0,1]).cuda()
 
@@ -292,12 +342,12 @@ def prep_optimizer(args, model, num_train_optimization_steps, device, n_gpu, loc
 
         scheduler = None
         optimizer = BertAdam(optimizer_grouped_parameters, lr=args.lr, warmup=args.warmup_proportion,
-                             schedule='warmup_cosine', b1=0.9, b2=0.98, e=1e-6,
-                             t_total=num_train_optimization_steps, weight_decay=weight_decay,
-                             max_grad_norm=1.0)
-        if args.distributed==True:
+                            schedule='warmup_cosine', b1=0.9, b2=0.98, e=1e-6,
+                            t_total=num_train_optimization_steps, weight_decay=weight_decay,
+                            max_grad_norm=1.0)
+        if args.distributed:
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
-                                                              output_device=local_rank, find_unused_parameters=True)
+                                                            output_device=local_rank, find_unused_parameters=True)
         else:
             model = torch.nn.DataParallel(model, device_ids=args.gpu_ids).cuda()
 
@@ -336,10 +386,10 @@ def prep_optimizer(args, model, num_train_optimization_steps, device, n_gpu, loc
 
         scheduler = None
         optimizer = BertAdam(optimizer_grouped_parameters,  warmup=args.warmup_proportion,
-                             schedule='warmup_cosine', b1=0.9, b2=0.98, e=1e-6,
-                             t_total=num_train_optimization_steps, weight_decay=weight_decay,
-                             max_grad_norm=1.0)
-        if args.distributed == True:
+                            schedule='warmup_cosine', b1=0.9, b2=0.98, e=1e-6,
+                            t_total=num_train_optimization_steps, weight_decay=weight_decay,
+                            max_grad_norm=1.0)
+        if args.distributed:
             model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[local_rank],
                                                               output_device=local_rank, find_unused_parameters=True)
         else:
@@ -431,7 +481,7 @@ def train_epoch(epoch, args, model, train_dataloader, device, n_gpu, optimizer, 
     start_time = time.time()
     total_loss = 0
 
-    if args.debug==True:
+    if args.debug:
         print("model allocated:")
         print(torch.cuda.memory_allocated()/1024.0/1024)
 
@@ -439,14 +489,14 @@ def train_epoch(epoch, args, model, train_dataloader, device, n_gpu, optimizer, 
         if n_gpu == 1:
             # multi-gpu does scattering it-self
             batch = tuple(t.to(device=device, non_blocking=True) for t in batch)
-        if args.debug == True:
+        if args.debug:
             print("input allocated:")
             print(torch.cuda.memory_allocated()/1024.0/1024)
 
         input_ids, input_mask, segment_ids, video, video_mask,pairs_text_aug,pairs_mask_aug = batch
         loss = model(input_ids, segment_ids, input_mask, video, video_mask,pairs_text_aug,pairs_mask_aug)
 
-        if args.debug == True:
+        if args.debug:
 
             print("forward allocated:")
             print(torch.cuda.memory_allocated()/1024.0/1024)
@@ -458,7 +508,7 @@ def train_epoch(epoch, args, model, train_dataloader, device, n_gpu, optimizer, 
 
         loss.backward()
 
-        if args.debug == True:
+        if args.debug:
             print("backward allocated:")
             print(torch.cuda.memory_allocated()/1024.0/1024)
         torch.cuda.empty_cache()
@@ -688,12 +738,12 @@ def eval_epoch(args, model, test_dataloader, device, n_gpu,istrain):
 
     R1 = tv_metrics['R1']
     torch.cuda.empty_cache()
-    return R1
+    return R1, tv_metrics, vt_metrics
 
 def main():
     global logger
     args = get_args()
-    args = set_seed_logger(args)
+    args, wandb_logger = set_seed_logger(args)
     device, n_gpu = init_device(args, args.local_rank)
 
     tokenizer = ClipTokenizer()
@@ -786,10 +836,10 @@ def main():
         loss_record=[]
         acc_record=[]
         for epoch in range(resumed_epoch, args.epochs):
-            if args.distributed==True:
+            if args.distributed:
                 train_sampler.set_epoch(epoch)
             tr_loss, global_step = train_epoch(epoch, args, model, train_dataloader, device, n_gpu, optimizer,
-                                               scheduler, global_step, local_rank=args.local_rank)
+                                            scheduler, global_step, local_rank=args.local_rank)
             if args.local_rank == 0 and (epoch+1)%10==0:
                 logger.info("Epoch %d/%s Finished, Train Loss: %f", epoch + 1, args.epochs, tr_loss)
 
@@ -799,7 +849,7 @@ def main():
                 # logger.info("Eval on val dataset")
                 # R1 = eval_epoch(args, model, val_dataloader, device, n_gpu)
             if args.local_rank == 0:
-                R1 = eval_epoch(args, model, test_dataloader, device, n_gpu,False)
+                R1, tv_metrics, vt_metrics = eval_epoch(args, model, test_dataloader, device, n_gpu,False)
                 if best_score <= R1:
                     best_score = R1
                     best_epoch=epoch
@@ -809,6 +859,12 @@ def main():
                 acc_record.append(R1)
                 print(loss_record)
                 print(acc_record)
+                log_stats = {'train_loss': tr_loss,
+                            **{f'T2V_{k}': v for k, v in tv_metrics.items()},
+                            **{f'V2T_{k}': v for k, v in vt_metrics.items()},
+                            'epoch': epoch+1,
+                            }
+                wandb_logger.log(log_stats)
         if args.local_rank == 0:
             save_acc_plot(args.epochs,acc_record,args)
             save_loss_plot(args.epochs,loss_record,args)

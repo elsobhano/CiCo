@@ -147,10 +147,10 @@ def main(args):
     )
 
     save_dir=args.save_dir
-
-
+    # print('Helllo')
+    # print(args)
+    # exit()
     train_loader, val_loader, meanstd = mdl._get_loaders(args)
-
     train_mean = meanstd[0]
     train_std = meanstd[1]
     val_mean = meanstd[2]

@@ -1,7 +1,7 @@
 import math
 import os
 import pickle as pkl
-
+import pickle
 import cv2
 import numpy as np
 
@@ -39,7 +39,6 @@ class H2S(VideoDataset):
         self.hflip = hflip
         self.stride = stride
         self.assign_labels = assign_labels
-        import pickle
         self.num_frames= {}
         self.rank=rank
         self.video_folder = "videos"
@@ -54,6 +53,7 @@ class H2S(VideoDataset):
         else:
             N=16
         rank=rank
+        print('*'*20)
         print(rank)
         print(f'all videos #{len(self.train_file)}')
         n_per_split = len(self.train_file) // N
@@ -66,20 +66,26 @@ class H2S(VideoDataset):
 
 
         self.train=[os.path.join(self.root_path,self.split,v) for v in self.train_file]
+        print(f'videos for this rank #{len(self.train)}')
+        print(self.train[:5])
         # self.valid = os.listdir(os.path.join(self.root_path,'test'))
         # self.valid=[os.path.join(self.root_path,'test',v) for v in self.valid]
 
 
-        frame_info_file=f'{self.split}_frame_dict.pkl'
+        frame_info_file=f'new_{self.split}_frame_dict.pkl'
         with open('%s' % (frame_info_file), 'rb') as f:
             frame_info = pickle.load(f)
+        # print(f'frame info keys {list(frame_info.keys())[:5]}')
+        # print(f'frame info values {list(frame_info.values())[:5]}')
+        
         self.num_frames = {}
         for train in self.train:
             key = train.split('/')[-1].split('.mp4')[0]
+            # Check if key is missing
             self.num_frames[train] = frame_info[key]
         self.videos = {}
         if evaluate_video:
-            self.valid, self.t_beg,self.num_clips = self._slide_windows(self.train,self.stride)
+            self.valid, self.t_beg,self.num_clips = self._slide_windows(self.train, self.stride)
             i=0
             for data_index in self.train:
                 frame_ix = self.num_frames[data_index]

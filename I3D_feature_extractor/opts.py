@@ -17,7 +17,7 @@ model_names = sorted(
     for name in models.__dict__
     # if name.islower() and not name.startswith("__")
     if not name.startswith("__")
-    and isinstance(models.__dict__[name], collections.Callable)
+    and isinstance(models.__dict__[name], collections.abc.Callable)
 )
 
 

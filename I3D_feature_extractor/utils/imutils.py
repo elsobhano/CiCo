@@ -15,6 +15,7 @@ def im_to_numpy(img):
 
 
 def im_to_torch(img):
+    img = cv2.resize(img, (256, 256), interpolation=cv2.INTER_LINEAR)
     img = np.transpose(img, (2, 0, 1))  # C*H*W
     img = to_torch(img).float()
     if img.max() > 1:

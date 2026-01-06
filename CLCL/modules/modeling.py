@@ -239,10 +239,10 @@ class CLIP4Clip(CLIP4ClipPreTrainedModel):
             self.frame_position_embeddings = nn.Embedding(cross_config.max_position_embeddings, cross_config.hidden_size)
         if self.sim_header == "seqTransf":
             self.transformerClip = TransformerClip(width=transformer_width, layers=self.task_config.cross_num_hidden_layers,
-                                                   heads=transformer_heads, )
+                                                heads=transformer_heads, )
         if self.sim_header == "seqLSTM":
             self.lstm_visual = nn.LSTM(input_size=cross_config.hidden_size, hidden_size=cross_config.hidden_size,
-                                       batch_first=True, bidirectional=False, num_layers=1)
+                                    batch_first=True, bidirectional=False, num_layers=1)
 
         self.loss_fct = CrossEn()
 
@@ -267,15 +267,15 @@ class CLIP4Clip(CLIP4ClipPreTrainedModel):
         else:
             video_frame = -1
         sequence_hidden,text_mask,sequence_cls, visual_output,video_mask,visual_cls,sequence_hidden_aug,text_mask_aug,sequence_cls_aug= self.get_sequence_visual_output(input_ids, token_type_ids, attention_mask,
-                                                                         video, video_mask, shaped=True, video_frame=video_frame,input_ids_aug=input_ids_aug,attention_mask_aug=attention_mask_aug)
+                                                                        video, video_mask, shaped=True, video_frame=video_frame,input_ids_aug=input_ids_aug,attention_mask_aug=attention_mask_aug)
 
         if self.training:
             loss = 0.
 
             if self.sim_header == "Filip":
                 I2T_sim, T2I_sim, *_tmp = self.get_similarity_logits(sequence_hidden, visual_output, text_mask,
-                                                                     video_mask,
-                                                                     shaped=True, loose_type=self.loose_type,sequence_hidden_aug=sequence_hidden_aug,text_mask_aug=text_mask_aug)
+                                                                    video_mask,
+                                                                    shaped=True, loose_type=self.loose_type,sequence_hidden_aug=sequence_hidden_aug,text_mask_aug=text_mask_aug)
                 # sim_i2t = self.filp_cls_loose_similarity(sequence_cls, visual_cls, attention_mask,
                 #                                                      video_mask)
                 sim_loss1 = self.loss_fct(I2T_sim)
@@ -566,10 +566,10 @@ class CLIP4Clip(CLIP4ClipPreTrainedModel):
         if sequence_hidden_aug==None:
             sequence_hidden_aug=sequence_output
             text_mask_aug=attention_mask
-        if self.sim_header=='Filip' and is_train==True:
+        if self.sim_header=='Filip' and is_train:
 
             I2T_sim,T2I_sim = self.flip_similarity_softmax(sequence_output, visual_output, attention_mask, video_mask,
-                                                     sim_header=self.sim_header,sequence_hidden_aug=sequence_hidden_aug,text_mask_aug=text_mask_aug)
+                                                    sim_header=self.sim_header,sequence_hidden_aug=sequence_hidden_aug,text_mask_aug=text_mask_aug)
 
             return I2T_sim,T2I_sim,contrastive_direction
         if loose_type:

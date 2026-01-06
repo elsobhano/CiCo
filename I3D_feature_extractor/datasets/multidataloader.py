@@ -33,6 +33,7 @@ class MultiDataLoader:
                         "root_path":args.root_path,
                         "split":args.split,
                         "stride":args.stride,
+                        "rank":args.rank,
                 })
             if dataset_name == "phoenix2014":
                 dataset = datasets.PHOENIX2014(**kwargs)
@@ -50,7 +51,7 @@ class MultiDataLoader:
         data_shuffle = True
 
         # Data loading code - set shared kwargs
-        loader_kwargs = {"pin_memory": True, "num_workers": args.workers}
+        loader_kwargs = {"pin_memory": True, "num_workers": 12}
 
         if not args.evaluate_video:
             # Note: to avoid excessive monkey patching, we share a common collation

@@ -12,9 +12,9 @@ import torch.utils.data as data
 from beartype import beartype
 
 from utils.imutils import (im_to_numpy, im_to_torch, im_to_video,
-                           resize_generic, video_to_im)
+                        resize_generic, video_to_im)
 from utils.transforms import (bbox_format, color_normalize, im_color_jitter,
-                              scale_yxyx_bbox)
+                            scale_yxyx_bbox)
 
 cv2.setNumThreads(0)
 
@@ -134,6 +134,10 @@ class VideoDataset(data.Dataset):
                     frame = frame[:, :, [2, 1, 0]]
                 # CxHxW (3, 240, 320), 0..1 --> np.transpose(frame, [2, 0, 1]) / 255.0
                 rgb_t = im_to_torch(frame)
+                # print(f"Frame shape: {rgb_t.shape}")
+                # print(f"fram dtype : {type(frame)}")
+                
+                # print(f"Frame shape: {rgb.shape}")
                 rgb[:, f, :, :] = rgb_t
             else:
                 # Copy last frame for temporal padding
